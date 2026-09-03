@@ -37,16 +37,47 @@ elif [ "$PKG" = "pacman" ]; then
 fi
 
 # ── Neovim ───────────────────────────────────────────────────────────────────
-if ! command -v nvim &>/dev/null; then
+# Test that nvim RUNS, not just that it is on PATH: a tarball for the wrong
+# architecture installs cleanly and only fails with "Exec format error".
+if ! nvim --version &>/dev/null; then
   echo "==> Installing Neovim from GitHub releases..."
   NVIM_VERSION="v0.11.0"
-  curl -LO "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-linux-x86_64.tar.gz"
-  sudo tar -C /usr/local -xzf nvim-linux-x86_64.tar.gz --strip-components=1
-  rm nvim-linux-x86_64.tar.gz
-  echo "==> Neovim installed."
+
+  case "$(uname -m)" in
+    x86_64)        NVIM_ARCH="x86_64" ;;
+    aarch64|arm64) NVIM_ARCH="arm64" ;;
+    *)
+      echo "ERROR: no Neovim release build for $(uname -m). Install it manually."
+      exit 1
+      ;;
+  esac
+  NVIM_TARBALL="nvim-linux-${NVIM_ARCH}.tar.gz"
+
+  if command -v nvim &>/dev/null; then
+    echo "==> Existing nvim at $(command -v nvim) does not run — removing it."
+    sudo rm -rf /usr/local/bin/nvim /usr/local/share/nvim /usr/local/lib/nvim
+  fi
+
+  # -f so a bad URL fails here instead of saving GitHub's 404 page as a tarball
+  curl -fLO "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/${NVIM_TARBALL}"
+  sudo tar -C /usr/local -xzf "$NVIM_TARBALL" --strip-components=1
+  rm "$NVIM_TARBALL"
+  echo "==> Neovim installed: $(nvim --version | head -1)"
 else
   echo "==> Neovim already installed: $(nvim --version | head -1)"
 fi
+
+# ── npm global prefix ────────────────────────────────────────────────────────
+# Debian's npm defaults to prefix=/usr/local, so `npm i -g` fails with EACCES
+# as a normal user. Point it at ~/.local — same place the fd symlink goes — so
+# global installs need no root and leave no root-owned files behind.
+NPM_PREFIX="$(npm config get prefix)"
+if [ "$NPM_PREFIX" != "$HOME/.local" ] && [ ! -w "$NPM_PREFIX/lib" ]; then
+  echo "==> npm prefix $NPM_PREFIX is not writable — switching to ~/.local"
+  npm config set prefix "$HOME/.local"
+fi
+mkdir -p ~/.local/bin
+export PATH="$HOME/.local/bin:$PATH"
 
 # ── tree-sitter CLI ──────────────────────────────────────────────────────────
 echo "==> Installing tree-sitter CLI..."
@@ -77,6 +108,8 @@ fi
 echo ""
 echo "Done! Open nvim to finish setup — lazy.nvim will install all plugins"
 echo "  and Mason will install LSP servers automatically on first launch."
+echo ""
+echo "  npm global binaries install to ~/.local/bin — make sure it is on PATH."
 echo ""
 echo "  Optional: install language runtimes if needed:"
 echo "    sudo apt install golang-go    # for gopls (Debian/Ubuntu)"
