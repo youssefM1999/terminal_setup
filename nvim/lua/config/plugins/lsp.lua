@@ -114,6 +114,28 @@ return {
 
         gopls = {},
 
+        -- Python. ruff below is lint/format only and has no goto-definition,
+        -- so a real type-checking server is needed for `grd` to work in .py files.
+        pyright = {
+          -- Pyright otherwise resolves imports against whichever python is on
+          -- PATH, so anything installed in a project venv looks unresolvable
+          -- and goto-definition into it returns nothing. Point it at the
+          -- project's own interpreter when there is one.
+          on_init = function(client)
+            local root = client.root_dir
+            if not root then return end
+            for _, dir in ipairs { '.venv', 'venv' } do
+              local py = root .. '/' .. dir .. '/bin/python'
+              if vim.uv.fs_stat(py) then
+                client.settings = vim.tbl_deep_extend('force', client.settings or {}, {
+                  python = { pythonPath = py },
+                })
+                return
+              end
+            end
+          end,
+        },
+
         svlangserver = {}, -- SystemVerilog
 
         stylua = {}, -- Used to format Lua code
